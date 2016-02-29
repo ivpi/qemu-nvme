@@ -3,5 +3,5 @@
 
 void nvme_init_voltssd(void)
 {
-	printf("volt: Volatile SSD started succesfully!\n");
+    printf("volt: Volatile SSD started succesfully!\n");
 }

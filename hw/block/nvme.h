@@ -1089,7 +1089,7 @@ typedef struct NvmeCtrl {
 
     LnvmCtrl     lightnvm_ctrl;
 
-	uint8_t is_volt;
+    uint8_t is_volt;
 } NvmeCtrl;
 
 typedef struct NvmeDifTuple {
