@@ -74,6 +74,7 @@
  *  at lbbfrequency. Default: Null (no file).
  *  lbbfrequency:<int> : Bad block frequency for generating bad block table. If
  *  no frequency is provided LNVM_DEFAULT_BB_FREQ will be used.
+ *	is_volt=<int>	: Enable volatile SSD. 1-Enabled, 0-Disabled . Default: 0
  *
  *
  * The logical block formats all start at 512 byte blocks and double for the
@@ -135,6 +136,7 @@
 
 #include "nvme.h"
 #include "trace.h"
+#include "volt_ssd.h"
 
 #define NVME_MAX_QS PCI_MSIX_FLAGS_QSIZE
 #define NVME_MAX_QUEUE_ENTRIES  0xffff
@@ -2694,6 +2696,9 @@ static int lightnvm_init(NvmeCtrl *n)
         return ret;
     }
 
+	if(n->is_volt)
+		nvme_init_voltssd();
+
     return 0;
 }
 
@@ -2839,7 +2844,7 @@ static int nvme_init(PCIDevice *pci_dev)
     nvme_init_ctrl(n);
     nvme_init_namespaces(n);
     if (lightnvm_dev(n))
-        return lightnvm_init(n);
+		return lightnvm_init(n);
     return 0;
 }
 
@@ -2921,6 +2926,7 @@ static Property nvme_props[] = {
     DEFINE_PROP_UINT8("lreadl2ptbl", NvmeCtrl, lightnvm_ctrl.read_l2p_tbl, 1),
     DEFINE_PROP_STRING("lbbtable", NvmeCtrl, lightnvm_ctrl.bb_tbl_name),
     DEFINE_PROP_UINT8("lbbfrequency", NvmeCtrl, lightnvm_ctrl.bb_gen_freq, 0),
+	DEFINE_PROP_UINT8("is_volt", NvmeCtrl, is_volt, 0),
 
     DEFINE_PROP_END_OF_LIST(),
 };
