@@ -3,6 +3,7 @@
 #include <qemu/bitops.h>
 #include "include/hw/block/block.h"
 #include "include/hw/pci/pci.h"
+#include "hw/block/volt_ssd.h"
 
 typedef struct NvmeBar {
     uint64_t    cap;
@@ -1091,6 +1092,7 @@ typedef struct NvmeCtrl {
     uint8_t     aer_mask;
 
     LnvmCtrl     lightnvm_ctrl;
+    LnvmVoltCtrl    volt_ctrl;
 
     uint8_t is_volt;
 } NvmeCtrl;

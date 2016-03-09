@@ -2730,7 +2730,7 @@ static int lightnvm_init(NvmeCtrl *n)
     }
 
     if(n->is_volt)
-        nvme_init_voltssd();
+        nvme_volt_init(n);
 
     return 0;
 }
