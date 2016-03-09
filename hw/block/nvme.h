@@ -1,6 +1,8 @@
 #ifndef HW_NVME_H
 #define HW_NVME_H
 #include <qemu/bitops.h>
+#include "include/hw/block/block.h"
+#include "include/hw/pci/pci.h"
 
 typedef struct NvmeBar {
     uint64_t    cap;
@@ -912,6 +914,7 @@ typedef struct NvmeRequest {
     BlockAcctCookie         acct;
     QEMUSGList              qsg;
     QEMUIOVector            iov;
+    QEMUIOVector            iov_volt; // QEMUIOVector to be stored on volatile storage
     QTAILQ_ENTRY(NvmeRequest)entry;
 } NvmeRequest;
 

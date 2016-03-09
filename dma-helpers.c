@@ -13,6 +13,7 @@
 #include "qemu/range.h"
 #include "qemu/thread.h"
 #include "qemu/main-loop.h"
+#include "hw/block/nvme.h"
 
 /* #define DEBUG_IOMMU */
 
@@ -288,6 +289,11 @@ BlockAIOCB *dma_blk_io_list(
     dbs->bh = NULL;
     qemu_iovec_init(&dbs->iov, sg->nsg);
     dma_blk_list_cb(dbs, 0);
+    
+    /* set the QEMUIOVector in the request to be used by volatile storage */
+    NvmeRequest *req = (NvmeRequest *) opaque;
+    req->iov_volt = dbs->iov;
+    
     return &dbs->common;
 }
 

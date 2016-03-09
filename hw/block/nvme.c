@@ -685,6 +685,12 @@ static uint16_t nvme_lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     uint32_t n_pages = data_size / ln->params.sec_size;
     uint16_t err;
     uint8_t i;
+    
+    struct ppa_addr lnvm_addr;
+    lnvm_addr.ppa = spba;
+    printf("\nLightNVM address: %#018lx\n", lnvm_addr.ppa);
+    printf("LightNVM address: blk:0x%04x, pg:0x%04x, sec:0x%02x, pl:0x%02x, lun:0x%02x, ch:0x%02x\n",
+            lnvm_addr.g.blk, lnvm_addr.g.pg, lnvm_addr.g.sec, lnvm_addr.g.pl, lnvm_addr.g.lun, lnvm_addr.g.ch);
 
     sector_list = g_malloc(sizeof(uint64_t) * ln->params.max_sec_per_rq);
     if (!sector_list)
@@ -760,6 +766,8 @@ static uint16_t nvme_lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
                                                             nvme_rw_cb, req) :
             dma_blk_read_list(n->conf.blk, &req->qsg, aio_sector_list,
                                                             nvme_rw_cb, req);
+        printf("Addr to data: %p\n", req->iov_volt.iov->iov_base);
+        printf("Page size: %lu bytes\n", req->iov_volt.size);
     } else {
         uint64_t aio_sector = aio_sector_list[0];
 
