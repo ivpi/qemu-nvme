@@ -59,6 +59,7 @@
  *  cmbsz=<cmbsz>    : Controller Memory Buffer CMBSZ register, Default:0
  *  cmbloc=<cmbloc>  : Controller Memory Buffer CMBLOC register, Default:0
  *  lver=<int>         : version of the LightNVM standard to use, Default:1
+ *  ll2pmode=<int>     : LightNVM op. mode. 1: hybrid, 0: full host-based. Default: 1
  *  lsec_size=<int>    : Controller Sector Size. Default: 4096
  *  lsecs_per_pg=<int> : Number of sectors in a flash page. Default: 1
  *  lpgs_per_blk=<int> : Number of pages per flash block. Default: 256
@@ -67,7 +68,8 @@
  *  lfmtype=<int>      : Flash media type. Default: 0 (SLC)
  *  lnum_ch=<int>      : Number of controller channels. Default: 1
  *  lnum_lun=<int>     : Number of LUNs per channel, Default:1
- *  lnum_pln=<int>     : Number of flash planes per LUN. Defult: 1
+ *  lnum_pln=<int>     : Number of flash planes per LUN. Supported single (1),
+ *  dual (2) and quad (4) plane modes. Defult: 1
  *  lreadl2ptbl=<int>  : Load logical to physical table. 1: yes, 0: no. Default: 1
  *  lbbtable=<file>    : Load bad block table from file destination (Provide path
  *  to file. If no file is provided a bad block table will be generation. Look
@@ -646,13 +648,13 @@ static uint16_t nvme_rw_check_req(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 
 static inline uint64_t nvme_gen_to_dev_addr(LnvmCtrl *ln, struct ppa_addr *r)
 {
-    LnvmIdGroup *c = &ln->id_ctrl.groups[0];
+    uint64_t lun_of = r->g.lun * ln->params.sec_per_lun;
+    uint64_t pln_off = r->g.pl * ln->params.sec_per_pl;
+    uint64_t blk_off = r->g.blk * ln->params.sec_per_blk;
     uint64_t pg_off = r->g.pg * ln->params.secs_per_pg;
-    uint64_t blk_lun_off = ((r->g.blk + r->g.lun * c->num_blk) *
-                        (ln->params.pgs_per_blk) * (ln->params.secs_per_pg));
     uint64_t ret;
 
-    ret = r->g.sec + pg_off + blk_lun_off;
+    ret = r->g.sec + pg_off + blk_off + pln_off + lun_of;
     if (ret > ln->params.total_secs)
         printf("Lnvm: sector out of bounds\n");
 
@@ -667,22 +669,24 @@ static uint16_t nvme_lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     LnvmCtrl *ln = &n->lightnvm_ctrl;
     LnvmRwCmd *lrw = (LnvmRwCmd *)cmd;
     struct ppa_addr psl[ln->params.max_sec_per_rq];
-    uint16_t ctrl = 0;
-    uint32_t nlb  = le16_to_cpu(lrw->nlb) + 1;
-    uint64_t prp1 = le64_to_cpu(lrw->prp1);
-    uint64_t prp2 = le64_to_cpu(lrw->prp2);
-    uint64_t spba = le64_to_cpu(lrw->spba);
     uint64_t sppa;
     uint64_t eppa;
     uint64_t ppa;
     uint64_t *sector_list;
     uint64_t *aio_sector_list;
+    uint32_t nlb  = le16_to_cpu(lrw->nlb) + 1;
+    uint64_t prp1 = le64_to_cpu(lrw->prp1);
+    uint64_t prp2 = le64_to_cpu(lrw->prp2);
+    uint64_t spba = le64_to_cpu(lrw->spba);
     const uint8_t lba_index = NVME_ID_NS_FLBAS_INDEX(ns->id_ns.flbas);
     const uint8_t data_shift = ns->id_ns.lbaf[lba_index].ds;
     const uint16_t ms = le16_to_cpu(ns->id_ns.lbaf[lba_index].ms);
     uint64_t data_size = nlb << data_shift;
     uint64_t meta_size = nlb * ms;
     uint32_t n_pages = data_size / ln->params.sec_size;
+    uint16_t is_write = (lrw->opcode == LNVM_CMD_PHYS_WRITE ||
+                                          lrw->opcode == LNVM_CMD_HYBRID_WRITE);
+    uint16_t ctrl = 0;
     uint16_t err;
     uint8_t i;
     
@@ -710,6 +714,15 @@ static uint16_t nvme_lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
         g_free(aio_sector_list);
         g_free(sector_list);
         return NVME_INVALID_FIELD | NVME_DNR;
+    } else if ((is_write) && (n_pages < ln->params.sec_per_pl)) {
+        printf("lnvm: I/O does not respect device write constrains."
+                "Sectors send: (%u). Min:%u sectors required\n",
+                                        n_pages, ln->params.sec_per_pl);
+        nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_LBA_RANGE,
+                offsetof(LnvmRwCmd, spba), lrw->slba + nlb, ns->id);
+        g_free(aio_sector_list);
+        g_free(sector_list);
+        return NVME_INVALID_FIELD | NVME_DNR;
     } else if (n_pages > 1) {
             nvme_addr_read(n, spba, (void *)psl, n_pages * sizeof(void *));
     } else {
@@ -725,8 +738,7 @@ static uint16_t nvme_lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     ctrl = le16_to_cpu(lrw->control);
     req->lightnvm_ppa_list = sector_list;
     req->lightnvm_slba = le64_to_cpu(lrw->slba);
-    req->is_write = (lrw->opcode == LNVM_CMD_PHYS_WRITE ||
-                                          lrw->opcode == LNVM_CMD_HYBRID_WRITE);
+    req->is_write = is_write;
 
     /* If several LUNs are set up, the ppa list sent by the host will not be
      * sequential. In this case, we need to pass on the list of ppas to the dma
@@ -1136,7 +1148,7 @@ static uint16_t lightnvm_get_bb_tbl(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
     ns = &n->namespaces[nsid - 1];
     ln = &n->lightnvm_ctrl;
     c = &ln->id_ctrl.groups[0];
-    nr_blocks = c->num_blk;
+    nr_blocks = c->num_blk * c->num_pln;
 
     bb_tbl = calloc(sizeof(LnvmBBTbl) + nr_blocks, 1);
     if (!bb_tbl) {
@@ -1196,12 +1208,12 @@ static uint16_t lightnvm_set_bb_tbl(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
     ns = &n->namespaces[nsid - 1];
     ln = &n->lightnvm_ctrl;
     c = &ln->id_ctrl.groups[0];
-    nr_blocks = c->num_blk;
+    nr_blocks = c->num_blk * c->num_pln;
 
     struct ppa_addr ppas[nr_blocks];
     if (nlb == 1) {
         ppas[0].ppa = spbappa.ppa;
-        ns->bbtbl[ppas[0].g.blk] = value;
+        ns->bbtbl[(ppas[0].g.blk * c->num_pln) + ppas[0].g.pl] = value;
     } else {
         if (nvme_dma_write_prp(n, (uint8_t *)ppas, nlb * 8, spba, prp2)) {
             nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
@@ -1210,7 +1222,7 @@ static uint16_t lightnvm_set_bb_tbl(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
         }
 
         for (i = 0; i < nlb; i++) {
-            ns->bbtbl[ppas[i].g.blk] = value;
+            ns->bbtbl[(ppas[i].g.blk * c->num_pln) + ppas[i].g.pl] = value;
         }
     }
 
@@ -2615,7 +2627,6 @@ static void lightnvm_init_id_ctrl(LnvmIdCtrl *ln_id)
     ln_id->vmnt = 0;
     ln_id->cgrps = 1;
     ln_id->cap = cpu_to_le32(0x3);
-    ln_id->dom = cpu_to_le32(0x1);
 
     ln_id->ppaf.blk_offset = 0;
     ln_id->ppaf.blk_len = 16;
@@ -2648,12 +2659,12 @@ static int lightnvm_init(NvmeCtrl *n)
         error_report("nvme: Only SLC Flash is supported at the moment\n");
     if (ln->params.num_ch != 1)
         error_report("nvme: Only 1 channel is supported at the moment\n");
-    if (ln->params.num_pln!= 1)
-        error_report("nvme: Only 1 flash plane is supported at the moment\n");
+    if ((ln->params.num_pln > 4) || (ln->params.num_pln == 3))
+        error_report("nvme: Only single, dual and quad plane modes supported \n");
 
     for (i = 0; i < n->num_namespaces; i++) {
         ns = &n->namespaces[i];
-        chnl_blks = ns->ns_blks / (ln->params.pgs_per_blk * ln->params.secs_per_pg);
+        chnl_blks = ns->ns_blks / (ln->params.secs_per_pg * ln->params.pgs_per_blk);
 
         c = &ln->id_ctrl.groups[0];
         c->mtype = ln->params.mtype;
@@ -2662,7 +2673,7 @@ static int lightnvm_init(NvmeCtrl *n)
         c->num_lun = ln->params.num_lun;
         c->num_pln = ln->params.num_pln;
 
-        c->num_blk = cpu_to_le16(chnl_blks) / c->num_lun;
+        c->num_blk = cpu_to_le16(chnl_blks) / (c->num_lun * c->num_pln);
         c->num_pg = cpu_to_le16(ln->params.pgs_per_blk);
         c->csecs = cpu_to_le16(ln->params.sec_size);
         c->fpg_sz = cpu_to_le16(ln->params.sec_size * ln->params.secs_per_pg);
@@ -2675,13 +2686,27 @@ static int lightnvm_init(NvmeCtrl *n)
         c->tbet = cpu_to_le32(1000000);
         c->tbem = cpu_to_le32(1000000);
 
-        c->mpos = cpu_to_le32(0x10101); /* single plane */
+        switch(c->num_pln) {
+            case 1:
+                c->mpos = cpu_to_le32(0x10101); /* single plane */
+                break;
+            case 2:
+                c->mpos = cpu_to_le32(0x20202); /* dual plane */
+                break;
+            case 4:
+                c->mpos = cpu_to_le32(0x40404); /* quad plane */
+                break;
+            default:
+                error_report("nvme: Invalid plane mode\n");
+                return -EINVAL;
+        }
+
         c->cpar = cpu_to_le16(0);
         c->mccap = 1;
         ns->bbtbl = qemu_blockalign(blk_bs(n->conf.blk), c->num_blk);
         memset(ns->bbtbl, 0, c->num_blk);
 
-        /* calculated values for internal checks */
+        /* calculated values */
         ln->params.sec_per_pl = ln->params.secs_per_pg * ln->params.num_pln;
         ln->params.sec_per_blk = ln->params.sec_per_pl * ln->params.pgs_per_blk;
         ln->params.sec_per_lun = ln->params.sec_per_blk * c->num_blk;
@@ -2922,6 +2947,7 @@ static Property nvme_props[] = {
     DEFINE_PROP_UINT16("vid", NvmeCtrl, vid, 0x1d1d),
     DEFINE_PROP_UINT16("did", NvmeCtrl, did, 0x1f1f),
     DEFINE_PROP_UINT8("lver", NvmeCtrl, lightnvm_ctrl.id_ctrl.ver_id, 0),
+    DEFINE_PROP_UINT32("ll2pmode", NvmeCtrl, lightnvm_ctrl.id_ctrl.dom, 1),
     DEFINE_PROP_UINT16("lsec_size", NvmeCtrl, lightnvm_ctrl.params.sec_size, 4096),
     DEFINE_PROP_UINT8("lsecs_per_pg", NvmeCtrl, lightnvm_ctrl.params.secs_per_pg, 1),
     DEFINE_PROP_UINT16("lpgs_per_blk", NvmeCtrl, lightnvm_ctrl.params.pgs_per_blk, 256),
