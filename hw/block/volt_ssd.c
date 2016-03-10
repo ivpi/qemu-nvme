@@ -8,30 +8,49 @@ void * nvme_volt_main(void *ctrl) {
     LnvmVoltCtrl *volt = &n->volt_ctrl;
     
     while(volt->status.active){     
-        printf("\nvolt: I am alive!\n");
-        printf("%d channel(s)\n%d lun(s) per channel\n%d block(s) per lun\n%d page(s) per block\nPage size: %d\n",
-            volt->params.num_ch, volt->params.num_lun, volt->params.num_blk, volt->params.num_pg, (int) volt->params.pg_size);
-        sleep(2000);
+        printf("\nvolt: I am alive, I yield here each 10 minutes!\n");
+        sleep(600);
     }
     return n;
 }
 
-static int nvme_volt_init_page(int c){
-    return ++c;
+static LnvmVoltPage * nvme_volt_init_page(LnvmVoltPage *pg){
+    pg->state = 0; /* free */
+    
+    return ++pg;
 }
 
 static int nvme_volt_init_blocks(LnvmVoltCtrl *volt){    
-    /* for now, only LUNs*/
-    int c = 0;
+    int page_count = 0;
     int i_blk;
     int i_pg;
     int total_blk = volt->params.num_blk*volt->params.num_lun;
-    for(i_blk = 0; i_blk <= total_blk; i_blk++){
-        for(i_pg = 0; i_pg <= volt->params.num_blk; i_pg++){
-            c = nvme_volt_init_page(c);
-        }        
+    
+    volt->blocks = g_malloc(sizeof(LnvmVoltBlock)*total_blk);
+    
+    for(i_blk = 0; i_blk < total_blk; i_blk++){        
+        LnvmVoltBlock *blk = &volt->blocks[i_blk];      
+        blk->life = LNVM_VOLT_BLK_LIFE; 
+        blk->pages = g_malloc(sizeof(LnvmVoltPage)*volt->params.num_pg);
+        blk->data = g_malloc0(volt->params.pg_size*volt->params.num_pg);
+        
+        LnvmVoltPage *pg= blk->pages;
+        for(i_pg = 0; i_pg < volt->params.num_pg; i_pg++){
+            pg = nvme_volt_init_page(pg);     
+            blk->data[i_pg*volt->params.pg_size] = (i_blk+1)*i_pg;
+            page_count++;
+        }
     }
-    return c;
+    return page_count;
+}
+
+static void nvme_volt_init_luns(LnvmVoltCtrl *volt){
+    int i_lun;
+    volt->luns = g_malloc(sizeof(LnvmVoltLun)*volt->params.num_lun);
+    
+    for(i_lun = 0; i_lun < volt->params.num_lun; i_lun++){
+        volt->luns[i_lun].blk_offset = &volt->blocks[i_lun*volt->params.num_blk];
+    }
 }
 
 void nvme_volt_init(void *ctrl)
@@ -52,10 +71,19 @@ void nvme_volt_init(void *ctrl)
     volt->params.pg_size = c->fpg_sz;
     volt->status.active = 1; /* activated */
     volt->status.ready = 0; /* busy */
+   
+    /* Memory allocation. For now only LUNs, blocks and pages */    
+    int pages_ok = nvme_volt_init_blocks(volt);
+    nvme_volt_init_luns(volt);
     
-    /* Memory allocation */
-    int init_pages = nvme_volt_init_blocks(volt);
-    printf("\nvolt: Volatile SSD started succesfully with %d pages.\n", init_pages);
+    printf("\nvolt: Volatile SSD started succesfully with %d pages.\n", pages_ok);
+    printf("volt: page_size: %d\n",(int)volt->params.pg_size);
+    printf("volt: pages_per_block: %d\n",volt->params.num_pg);
+    printf("volt: blocks_per_lun: %d\n",volt->params.num_blk);
+    printf("volt: luns: %d\n",volt->params.num_lun);
+    printf("volt: total_blocks: %d\n",volt->params.num_lun*volt->params.num_blk);    
+        
+    //printf("Data: %d\n",volt->luns[1].blk_offset[3].data[3*volt->params.pg_size]);
     
     pthread_t pth;
     int res = pthread_create(&pth, NULL, nvme_volt_main, n);

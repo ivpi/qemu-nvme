@@ -3,6 +3,8 @@
 
 #include<stdint.h>
 
+#define LNVM_VOLT_BLK_LIFE 5000
+
 typedef struct LnvmVoltParams {
     uint8_t     num_ch;
     uint8_t     num_lun;
@@ -17,30 +19,24 @@ typedef struct LnvmVoltStatus {
 } LnvmVoltStatus;
 
 typedef struct LnvmVoltPage {
-    void *data;
     uint8_t state; /* 0-free, 1-alive, 2-invalid */
-    void *block;
 } LnvmVoltPage;
 
 typedef struct LnvmVoltBlock {
-    LnvmVoltPage *pages;
     uint16_t life; /* available writes before die */
-    void *lun;
+    LnvmVoltPage *pages;
+    uint8_t *data;
 } LnvmVoltBlock;
 
 typedef struct LnvmVoltLun {
-    LnvmVoltBlock *blocks;
-    void *channel;
+    LnvmVoltBlock *blk_offset;
 } LnvmVoltLun;
-
-typedef struct LnvmVoltChannel {
-    LnvmVoltLun *luns;
-} LnvmVoltCh;
 
 typedef struct LnvmVoltCtrl {
     LnvmVoltParams params;
     LnvmVoltStatus status;
     LnvmVoltBlock * blocks;
+    LnvmVoltLun * luns;
 } LnvmVoltCtrl;
 
 /* TODO: after the work is done, change void to NvmeCtrl */
