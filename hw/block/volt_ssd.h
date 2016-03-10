@@ -16,6 +16,7 @@ typedef struct LnvmVoltParams {
 typedef struct LnvmVoltStatus {
     uint8_t     ready; /* 0-busy, 1-ready to use */
     uint8_t     active; /* 0-disabled, 1-activated */
+    uint64_t    allocated_memory;
 } LnvmVoltStatus;
 
 typedef struct LnvmVoltPage {

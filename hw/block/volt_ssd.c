@@ -14,6 +14,11 @@ void * nvme_volt_main(void *ctrl) {
     return n;
 }
 
+static uint64_t nvme_volt_add_mem(LnvmVoltCtrl *volt, uint64_t bytes){
+    volt->status.allocated_memory += bytes;
+    return bytes;
+}
+
 static LnvmVoltPage * nvme_volt_init_page(LnvmVoltPage *pg){
     pg->state = 0; /* free */
     
@@ -26,13 +31,13 @@ static int nvme_volt_init_blocks(LnvmVoltCtrl *volt){
     int i_pg;
     int total_blk = volt->params.num_blk*volt->params.num_lun;
     
-    volt->blocks = g_malloc(sizeof(LnvmVoltBlock)*total_blk);
+    volt->blocks = g_malloc(nvme_volt_add_mem(volt, sizeof(LnvmVoltBlock)*total_blk));
     
     for(i_blk = 0; i_blk < total_blk; i_blk++){        
         LnvmVoltBlock *blk = &volt->blocks[i_blk];      
         blk->life = LNVM_VOLT_BLK_LIFE; 
-        blk->pages = g_malloc(sizeof(LnvmVoltPage)*volt->params.num_pg);
-        blk->data = g_malloc0(volt->params.pg_size*volt->params.num_pg);
+        blk->pages = g_malloc(nvme_volt_add_mem(volt, sizeof(LnvmVoltPage)*volt->params.num_pg));
+        blk->data = g_malloc0(nvme_volt_add_mem(volt, volt->params.pg_size*volt->params.num_pg));
         
         LnvmVoltPage *pg= blk->pages;
         for(i_pg = 0; i_pg < volt->params.num_pg; i_pg++){
@@ -46,7 +51,7 @@ static int nvme_volt_init_blocks(LnvmVoltCtrl *volt){
 
 static void nvme_volt_init_luns(LnvmVoltCtrl *volt){
     int i_lun;
-    volt->luns = g_malloc(sizeof(LnvmVoltLun)*volt->params.num_lun);
+    volt->luns = g_malloc(nvme_volt_add_mem(volt,sizeof(LnvmVoltLun)*volt->params.num_lun));
     
     for(i_lun = 0; i_lun < volt->params.num_lun; i_lun++){
         volt->luns[i_lun].blk_offset = &volt->blocks[i_lun*volt->params.num_blk];
@@ -81,7 +86,8 @@ void nvme_volt_init(void *ctrl)
     printf("volt: pages_per_block: %d\n",volt->params.num_pg);
     printf("volt: blocks_per_lun: %d\n",volt->params.num_blk);
     printf("volt: luns: %d\n",volt->params.num_lun);
-    printf("volt: total_blocks: %d\n",volt->params.num_lun*volt->params.num_blk);    
+    printf("volt: total_blocks: %d\n",volt->params.num_lun*volt->params.num_blk);   
+    printf("volt: Volatile memory usage: %lu Mb\n",volt->status.allocated_memory/1048576);
         
     //printf("Data: %d\n",volt->luns[1].blk_offset[3].data[3*volt->params.pg_size]);
     
