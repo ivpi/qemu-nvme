@@ -3,6 +3,8 @@
 
 #include<stdint.h>
 
+#define LNVM_VOLT_MEM_ERROR 0
+#define LNVM_VOLT_MEM_OK 1
 #define LNVM_VOLT_BLK_LIFE 5000
 
 typedef struct LnvmVoltParams {
@@ -16,7 +18,7 @@ typedef struct LnvmVoltParams {
 typedef struct LnvmVoltStatus {
     uint8_t     ready; /* 0-busy, 1-ready to use */
     uint8_t     active; /* 0-disabled, 1-activated */
-    uint64_t    allocated_memory;
+    int64_t   allocated_memory;
 } LnvmVoltStatus;
 
 typedef struct LnvmVoltPage {

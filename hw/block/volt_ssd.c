@@ -14,14 +14,17 @@ void * nvme_volt_main(void *ctrl) {
     return n;
 }
 
-static uint64_t nvme_volt_add_mem(LnvmVoltCtrl *volt, uint64_t bytes){
+static size_t nvme_volt_add_mem(LnvmVoltCtrl *volt, int64_t bytes){
     volt->status.allocated_memory += bytes;
     return bytes;
 }
 
+static void nvme_volt_sub_mem(LnvmVoltCtrl *volt, int64_t bytes){
+    volt->status.allocated_memory -= bytes;
+}
+
 static LnvmVoltPage * nvme_volt_init_page(LnvmVoltPage *pg){
-    pg->state = 0; /* free */
-    
+    pg->state = 0; /* free */    
     return ++pg;
 }
 
@@ -32,12 +35,20 @@ static int nvme_volt_init_blocks(LnvmVoltCtrl *volt){
     int total_blk = volt->params.num_blk*volt->params.num_lun;
     
     volt->blocks = g_malloc(nvme_volt_add_mem(volt, sizeof(LnvmVoltBlock)*total_blk));
+    if (!volt->blocks)
+        return LNVM_VOLT_MEM_ERROR;
     
     for(i_blk = 0; i_blk < total_blk; i_blk++){        
         LnvmVoltBlock *blk = &volt->blocks[i_blk];      
         blk->life = LNVM_VOLT_BLK_LIFE; 
+        
         blk->pages = g_malloc(nvme_volt_add_mem(volt, sizeof(LnvmVoltPage)*volt->params.num_pg));
+        if (!blk->pages)
+            return LNVM_VOLT_MEM_ERROR;
+        
         blk->data = g_malloc0(nvme_volt_add_mem(volt, volt->params.pg_size*volt->params.num_pg));
+        if (!blk->data)
+            return LNVM_VOLT_MEM_ERROR;
         
         LnvmVoltPage *pg= blk->pages;
         for(i_pg = 0; i_pg < volt->params.num_pg; i_pg++){
@@ -49,13 +60,32 @@ static int nvme_volt_init_blocks(LnvmVoltCtrl *volt){
     return page_count;
 }
 
-static void nvme_volt_init_luns(LnvmVoltCtrl *volt){
+static int nvme_volt_init_luns(LnvmVoltCtrl *volt){
     int i_lun;
     volt->luns = g_malloc(nvme_volt_add_mem(volt,sizeof(LnvmVoltLun)*volt->params.num_lun));
+    if (!volt->luns)
+        return LNVM_VOLT_MEM_ERROR;
     
     for(i_lun = 0; i_lun < volt->params.num_lun; i_lun++){
         volt->luns[i_lun].blk_offset = &volt->blocks[i_lun*volt->params.num_blk];
     }
+    return LNVM_VOLT_MEM_OK;
+}
+
+static void nvme_volt_clean_mem(LnvmVoltCtrl *volt){
+    int total_blk = volt->params.num_blk*volt->params.num_lun;
+    int i;
+    for(i = 0; i < total_blk; i++){ 
+        g_free(volt->blocks[i].data);
+        nvme_volt_sub_mem(volt, volt->params.pg_size*volt->params.num_pg);
+        g_free(volt->blocks[i].pages);
+        nvme_volt_sub_mem(volt, sizeof(LnvmVoltPage)*volt->params.num_pg);        
+    }
+    g_free(volt->blocks);
+    nvme_volt_sub_mem(volt, sizeof(LnvmVoltBlock)*total_blk);
+    
+    g_free(volt->luns);
+    nvme_volt_sub_mem(volt, sizeof(LnvmVoltLun)*volt->params.num_lun);
 }
 
 void nvme_volt_init(void *ctrl)
@@ -79,7 +109,15 @@ void nvme_volt_init(void *ctrl)
    
     /* Memory allocation. For now only LUNs, blocks and pages */    
     int pages_ok = nvme_volt_init_blocks(volt);
-    nvme_volt_init_luns(volt);
+    int res = nvme_volt_init_luns(volt);
+    
+    if(!pages_ok || !res)
+        goto MEM_ERROR;
+    
+    pthread_t pth;
+    res = pthread_create(&pth, NULL, nvme_volt_main, n);
+    if (res)
+        goto THREAD_ERROR;
     
     printf("\nvolt: Volatile SSD started succesfully with %d pages.\n", pages_ok);
     printf("volt: page_size: %d\n",(int)volt->params.pg_size);
@@ -87,12 +125,22 @@ void nvme_volt_init(void *ctrl)
     printf("volt: blocks_per_lun: %d\n",volt->params.num_blk);
     printf("volt: luns: %d\n",volt->params.num_lun);
     printf("volt: total_blocks: %d\n",volt->params.num_lun*volt->params.num_blk);   
-    printf("volt: Volatile memory usage: %lu Mb\n",volt->status.allocated_memory/1048576);
+    printf("volt: Volatile memory usage: %lu Mb\n",volt->status.allocated_memory/1048576);    
+    return;
         
-    //printf("Data: %d\n",volt->luns[1].blk_offset[3].data[3*volt->params.pg_size]);
+    //printf("Data: %d\n",volt->luns[1].blk_offset[3].data[3*volt->params.pg_size]);   
+        
+    THREAD_ERROR:
+        printf("volt: Not Initialized! Main thread failed to start.\n");        
+        goto EXIT;
+        
+    MEM_ERROR:
+        printf("volt: Not initialized! Memory allocation failed.\n");
+        goto EXIT;
     
-    pthread_t pth;
-    int res = pthread_create(&pth, NULL, nvme_volt_main, n);
-    if (res)
-        volt->status.active = 0; /* disabled */
+    EXIT:
+        volt->status.active = 0;
+        nvme_volt_clean_mem(volt);
+        printf("volt: Volatile memory usage: %lu bytes.\n",volt->status.allocated_memory);
+        return;
 }
