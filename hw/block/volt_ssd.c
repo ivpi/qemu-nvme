@@ -3,16 +3,12 @@
 #include "volt_ssd.h"
 #include "nvme.h"
 
-void * nvme_volt_main(void *ctrl)
+void nvme_volt_main(void *opaque)
 {
-    NvmeCtrl *n = (NvmeCtrl *) ctrl;
-    LnvmVoltCtrl *volt = &n->volt_ctrl;
+    LnvmVoltCtrl *volt = (LnvmVoltCtrl *) opaque;
 
-    while (volt->status.active) {
-        printf("\nvolt: I am alive, I yield here each 10 minutes!\n");
-        sleep(600);
-    }
-    return n;
+    printf("\nvolt: I am alive, I yield here each 10 minutes!\n");
+    timer_mod(volt->mainTimer, qemu_clock_get_us(QEMU_CLOCK_VIRTUAL) + LNVM_VOLT_SECOND * 600);
 }
 
 static size_t nvme_volt_add_mem(LnvmVoltCtrl *volt, int64_t bytes)
@@ -122,10 +118,8 @@ void nvme_volt_init(void *ctrl)
     if (!pages_ok || !res)
         goto MEM_ERROR;
 
-    pthread_t pth;
-    res = pthread_create(&pth, NULL, nvme_volt_main, n);
-    if (res)
-        goto THREAD_ERROR;
+    volt->mainTimer = timer_new_us(QEMU_CLOCK_VIRTUAL, nvme_volt_main, volt);
+    timer_mod(volt->mainTimer, qemu_clock_get_us(QEMU_CLOCK_VIRTUAL));
 
     volt->status.ready = 1; /* ready to use */
 
@@ -140,17 +134,10 @@ void nvme_volt_init(void *ctrl)
 
     //printf("Data: %d\n",volt->luns[1].blk_offset[3].data[3*volt->params.pg_size]);   
 
-THREAD_ERROR:
-    printf("volt: Not Initialized! Main thread failed to start.\n");
-    goto EXIT;
-
 MEM_ERROR:
-    printf("volt: Not initialized! Memory allocation failed.\n");
-    goto EXIT;
-
-EXIT:
     volt->status.active = 0;
     nvme_volt_clean_mem(volt);
+    printf("volt: Not initialized! Memory allocation failed.\n");
     printf("volt: Volatile memory usage: %lu bytes.\n", volt->status.allocated_memory);
     return;
 }
