@@ -41,6 +41,8 @@ typedef struct LnvmVoltLun {
 } LnvmVoltLun;
 
 typedef struct LnvmVoltCtrl {
+    struct NvmeCtrl *ctrl;
+    struct NvmeNamespace   *ns;
     LnvmVoltParams  params;
     LnvmVoltStatus  status;
     LnvmVoltBlock   *blocks;
@@ -48,8 +50,7 @@ typedef struct LnvmVoltCtrl {
     QEMUTimer       *mainTimer;
 } LnvmVoltCtrl;
 
-/* TODO: after the work is done, change void to NvmeCtrl */
-void nvme_volt_init(void *ctrl);
+void nvme_volt_init(struct NvmeCtrl *n);
 void nvme_volt_main(void *ctrl); /* main thread */
 
 #endif /* VOLT_SSD_H */ 

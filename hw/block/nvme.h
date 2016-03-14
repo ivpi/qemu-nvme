@@ -1092,7 +1092,7 @@ typedef struct NvmeCtrl {
     uint8_t     aer_mask;
 
     LnvmCtrl     lightnvm_ctrl;
-    LnvmVoltCtrl    volt_ctrl;
+    LnvmVoltCtrl    *volt_ctrl;
 
     uint8_t is_volt;
 } NvmeCtrl;

@@ -692,7 +692,9 @@ static uint16_t nvme_lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     
     struct ppa_addr lnvm_addr;
     lnvm_addr.ppa = spba;
-    printf("\nLightNVM address: %#018lx\n", lnvm_addr.ppa);
+    printf("\nCommand to namespace %d\n",ns->id);
+    printf("Cmd opcode: 0x%02x\n",lrw->opcode);
+    printf("LightNVM address: %#018lx\n", lnvm_addr.ppa);
     printf("LightNVM address: blk:0x%04x, pg:0x%04x, sec:0x%02x, pl:0x%02x, lun:0x%02x, ch:0x%02x\n",
             lnvm_addr.g.blk, lnvm_addr.g.pg, lnvm_addr.g.sec, lnvm_addr.g.pl, lnvm_addr.g.lun, lnvm_addr.g.ch);
 
@@ -2172,6 +2174,7 @@ static uint16_t nvme_set_db_memory(NvmeCtrl *n, const NvmeCmd *cmd)
 
 static uint16_t nvme_admin_cmd(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
 {
+    printf("Admin cmd opcode: 0x%02x\n",cmd->opcode);
     switch (cmd->opcode) {
     case NVME_ADM_CMD_DELETE_SQ:
         return nvme_del_sq(n, cmd);
@@ -2728,7 +2731,7 @@ static int lightnvm_init(NvmeCtrl *n)
         error_report("nvme: cannot read l2p table\n");
         return ret;
     }
-
+    
     if(n->is_volt)
         nvme_volt_init(n);
 
