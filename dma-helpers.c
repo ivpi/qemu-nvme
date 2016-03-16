@@ -199,6 +199,13 @@ static void dma_blk_list_cb(void *opaque, int ret)
      * recursion in the callback in a per sector basis. This way, we can load
      * the next address from the sector_list, instead of assuming sequentiality.
      */
+
+    /* Ivan: Make the DMA recursive implies that each iteration takes place
+     * together with QEMU main loop due the use of QEMU BH feature and 
+     * coroutines. It executes the next iteration of "cb" function (recursive 
+     * dma_blk_list_cb or enqueue completion queue) in the next iteration of 
+     * the QEMU main loop. It means that 1 sector is performed each iteration.
+     */
     cur_addr = dbs->sg->sg[dbs->sg_cur_index].base + dbs->sg_cur_byte;
     cur_len = dbs->sg->sg[dbs->sg_cur_index].len - dbs->sg_cur_byte;
     mem = dma_memory_map(dbs->sg->as, cur_addr, &cur_len, dbs->dir);
@@ -289,11 +296,6 @@ BlockAIOCB *dma_blk_io_list(
     dbs->bh = NULL;
     qemu_iovec_init(&dbs->iov, sg->nsg);
     dma_blk_list_cb(dbs, 0);
-    
-    /* set the QEMUIOVector in the request to be used by volatile storage */
-    NvmeRequest *req = (NvmeRequest *) opaque;
-    req->iov_volt = dbs->iov;
-    
     return &dbs->common;
 }
 
@@ -326,6 +328,22 @@ BlockAIOCB *dma_blk_write_list(BlockBackend *blk,
                           void (*cb)(void *opaque, int ret), void *opaque)
 {
     return dma_blk_io_list(blk, sg, sector_list, blk_aio_writev, cb, opaque,
+                      DMA_DIRECTION_TO_DEVICE);
+}
+
+BlockAIOCB *nvme_volt_dma_blk_read_list(BlockBackend *blk,
+                         QEMUSGList *sg, uint64_t *sector_list,
+                         void (*cb)(void *opaque, int ret), void *opaque)
+{
+    return dma_blk_io_list(blk, sg, sector_list, nvme_volt_redirect_read, cb, opaque,
+                      DMA_DIRECTION_FROM_DEVICE);
+}
+
+BlockAIOCB *nvme_volt_dma_blk_write_list(BlockBackend *blk,
+                          QEMUSGList *sg, uint64_t *sector_list,
+                          void (*cb)(void *opaque, int ret), void *opaque)
+{
+    return dma_blk_io_list(blk, sg, sector_list, nvme_volt_redirect_write, cb, opaque,
                       DMA_DIRECTION_TO_DEVICE);
 }
 

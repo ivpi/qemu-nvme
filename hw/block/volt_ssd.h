@@ -1,8 +1,13 @@
 #ifndef VOLT_SSD_H
 #define VOLT_SSD_H
 
-#include<stdint.h>
+#include <stdint.h>
 #include "include/qemu/timer.h"
+#include "block/coroutine.h"
+#include "block/aio.h"
+#include "block/block.h"
+#include "block/block_int.h"
+#include "sysemu/block-backend.h"
 
 #define LNVM_VOLT_MEM_ERROR 0
 #define LNVM_VOLT_MEM_OK 1
@@ -50,7 +55,39 @@ typedef struct LnvmVoltCtrl {
     QEMUTimer       *mainTimer;
 } LnvmVoltCtrl;
 
+typedef struct LnvmVoltBlockAIOCBCoroutine {
+    BlockAIOCB common;
+    BlockRequest req;
+    bool is_write;
+    bool *done;
+    QEMUBH* bh;
+} LnvmVoltBlockAIOCBCoroutine;
+
+struct BlockBackend {
+    char *name;
+    int refcnt;
+    BlockDriverState *bs;
+    DriveInfo *legacy_dinfo;
+    QTAILQ_ENTRY(BlockBackend) link;
+    void *dev;
+    const BlockDevOps *dev_ops;
+    void *dev_opaque;
+};
+
 void nvme_volt_init(struct NvmeCtrl *n);
 void nvme_volt_main(void *ctrl); /* main thread */
+void coroutine_fn nvme_volt_redirect_co(void *opaque);
+BlockAIOCB *nvme_volt_redirect_read(BlockBackend *blk, int64_t sector_num,
+                           QEMUIOVector *iov, int nb_sectors,
+                           BlockCompletionFunc *cb, void *opaque);
+BlockAIOCB *nvme_volt_redirect_write(BlockBackend *blk, int64_t sector_num,
+                           QEMUIOVector *iov, int nb_sectors,
+                           BlockCompletionFunc *cb, void *opaque);
+BlockAIOCB *nvme_volt_dma_blk_read_list(BlockBackend *blk,
+                         QEMUSGList *sg, uint64_t *sector_list,
+                         void (*cb)(void *opaque, int ret), void *opaque);
+BlockAIOCB *nvme_volt_dma_blk_write_list(BlockBackend *blk,
+                         QEMUSGList *sg, uint64_t *sector_list,
+                         void (*cb)(void *opaque, int ret), void *opaque);
 
 #endif /* VOLT_SSD_H */ 

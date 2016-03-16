@@ -775,13 +775,19 @@ static uint16_t nvme_lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     dma_acct_start(n->conf.blk, &req->acct, &req->qsg, req->is_write ?
         BLOCK_ACCT_WRITE : BLOCK_ACCT_READ);
     if (req->qsg.nsg > 0) {
-        req->aiocb = req->is_write ?
-            dma_blk_write_list(n->conf.blk, &req->qsg, aio_sector_list,
+        if(n->is_volt){
+            req->aiocb = req->is_write ?
+                nvme_volt_dma_blk_write_list(n->conf.blk, &req->qsg, aio_sector_list,
                                                             nvme_rw_cb, req) :
-            dma_blk_read_list(n->conf.blk, &req->qsg, aio_sector_list,
+                nvme_volt_dma_blk_read_list(n->conf.blk, &req->qsg, aio_sector_list,
                                                             nvme_rw_cb, req);
-        printf("Addr to data: %p\n", req->iov_volt.iov->iov_base);
-        printf("Page size: %lu bytes\n", req->iov_volt.size);
+        }else{
+            req->aiocb = req->is_write ?
+                dma_blk_write_list(n->conf.blk, &req->qsg, aio_sector_list,
+                                                            nvme_rw_cb, req) :
+                dma_blk_read_list(n->conf.blk, &req->qsg, aio_sector_list,
+                                                            nvme_rw_cb, req);
+        }
     } else {
         uint64_t aio_sector = aio_sector_list[0];
 

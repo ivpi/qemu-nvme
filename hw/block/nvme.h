@@ -915,7 +915,6 @@ typedef struct NvmeRequest {
     BlockAcctCookie         acct;
     QEMUSGList              qsg;
     QEMUIOVector            iov;
-    QEMUIOVector            iov_volt; // QEMUIOVector to be stored on volatile storage
     QTAILQ_ENTRY(NvmeRequest)entry;
 } NvmeRequest;
 

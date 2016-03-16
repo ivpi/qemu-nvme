@@ -8,9 +8,83 @@ void nvme_volt_main(void *opaque)
     LnvmVoltCtrl *volt = (LnvmVoltCtrl *) opaque;
 
     if (volt->status.active) {
-        printf("\nvolt: I am alive, I yield here each 10 minutes!\n");
+        printf("\nvolt: I am alive in ns%d, I yield here each 10 minutes!\n",volt->ns->id);
         timer_mod(volt->mainTimer, qemu_clock_get_us(QEMU_CLOCK_VIRTUAL) + LNVM_VOLT_SECOND * 600);
     }
+}
+
+static int nvme_volt_print_read(void){
+    printf("Volt device is readind!\n");
+    return 0;
+}
+
+static int nvme_volt_print_write(void){
+    printf("Volt device is writing!\n");
+    return 0;
+}
+
+static void nvme_volt_bh(void *opaque)
+{
+    LnvmVoltBlockAIOCBCoroutine *acb = opaque;
+
+    acb->common.cb(acb->common.opaque, acb->req.error);
+
+    qemu_bh_delete(acb->bh);
+    qemu_aio_unref(acb);
+}
+
+void coroutine_fn nvme_volt_redirect_co(void *opaque){
+    LnvmVoltBlockAIOCBCoroutine *acb = opaque;
+    BlockDriverState *bs = acb->common.bs;
+
+    if (!acb->is_write) {
+        acb->req.error = nvme_volt_print_read(); // VOLT READ
+    } else {
+        acb->req.error = nvme_volt_print_write(); // VOLT WRITE
+    }
+
+    acb->bh = aio_bh_new(bdrv_get_aio_context(bs), nvme_volt_bh, acb);
+    qemu_bh_schedule(acb->bh);
+}
+
+static const AIOCBInfo nvme_volt_aiocb_info = {
+    .aiocb_size         = sizeof(LnvmVoltBlockAIOCBCoroutine),
+};
+
+static BlockAIOCB *nvme_volt_redirect_rw(BlockDriverState *bs,
+                                         int64_t sector_num,
+                                         QEMUIOVector *qiov,
+                                         int nb_sectors,
+                                         BdrvRequestFlags flags,
+                                         BlockCompletionFunc *cb,
+                                         void *opaque,
+                                         bool is_write){
+    Coroutine *co;
+    LnvmVoltBlockAIOCBCoroutine *acb;
+
+    acb = qemu_aio_get(&nvme_volt_aiocb_info, bs, cb, opaque);
+    acb->req.sector = sector_num;
+    acb->req.nb_sectors = nb_sectors;
+    acb->req.qiov = qiov;
+    acb->req.flags = flags;
+    acb->is_write = is_write;
+
+    co = qemu_coroutine_create(nvme_volt_redirect_co);
+    qemu_coroutine_enter(co, acb);
+
+    return &acb->common;
+}
+
+BlockAIOCB *nvme_volt_redirect_write(BlockBackend *blk, int64_t sector_num,
+                           QEMUIOVector *iov, int nb_sectors,
+                           BlockCompletionFunc *cb, void *opaque){
+    return nvme_volt_redirect_rw(blk->bs, sector_num, iov, nb_sectors, 0, cb, opaque, true);
+}
+
+BlockAIOCB *nvme_volt_redirect_read(BlockBackend *blk, int64_t sector_num,
+                           QEMUIOVector *iov, int nb_sectors,
+                           BlockCompletionFunc *cb, void *opaque){
+    return nvme_volt_redirect_rw(blk->bs, sector_num, iov, nb_sectors, 0, cb, opaque, false);
 }
 
 static size_t nvme_volt_add_mem(LnvmVoltCtrl *volt, int64_t bytes)
