@@ -690,13 +690,8 @@ static uint16_t nvme_lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     uint16_t err;
     uint8_t i;
     
-    struct ppa_addr lnvm_addr;
-    lnvm_addr.ppa = spba;
     printf("\nCommand to namespace %d\n",ns->id);
     printf("Cmd opcode: 0x%02x\n",lrw->opcode);
-    printf("LightNVM address: %#018lx\n", lnvm_addr.ppa);
-    printf("LightNVM address: blk:0x%04x, pg:0x%04x, sec:0x%02x, pl:0x%02x, lun:0x%02x, ch:0x%02x\n",
-            lnvm_addr.g.blk, lnvm_addr.g.pg, lnvm_addr.g.sec, lnvm_addr.g.pl, lnvm_addr.g.lun, lnvm_addr.g.ch);
 
     sector_list = g_malloc(sizeof(uint64_t) * ln->params.max_sec_per_rq);
     if (!sector_list)
@@ -752,6 +747,10 @@ static uint16_t nvme_lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
         aio_sector_list[i] =
                     ns->start_block + (ppa << (data_shift - BDRV_SECTOR_BITS));
     }
+
+    /* If volatile device is active, the aio_sector_list should be the ppa_list */
+    if(n->is_volt)
+        memcpy(aio_sector_list, &psl, sizeof(uint64_t)*n_pages);
 
     /* Reuse check logic from nvme_rw */
     sppa = nvme_gen_to_dev_addr(ln, &psl[0]);

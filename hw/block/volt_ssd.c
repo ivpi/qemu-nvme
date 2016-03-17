@@ -13,13 +13,40 @@ void nvme_volt_main(void *opaque)
     }
 }
 
-static int nvme_volt_print_read(void){
+static LnvmVoltBlock *nvme_volt_get_block(LnvmVoltCtrl *volt, struct ppa_addr addr){
+    return volt->luns[addr.g.lun].blk_offset+addr.g.blk;
+}
+
+static int nvme_volt_print_read(NvmeRequest *req, struct ppa_addr addr, QEMUIOVector *iov){
+    LnvmVoltCtrl *volt = (LnvmVoltCtrl *) req->ns->ctrl->volt_ctrl;
     printf("Volt device is readind!\n");
+
+    // VERIFY ADDRESS
+    // VERIFY PAGE STATE
+
+    LnvmVoltBlock *blk = nvme_volt_get_block(volt, addr);
+    memcpy(iov->iov->iov_base,&blk->data[addr.g.pg * volt->params.pg_size],iov->iov->iov_len);
+    printf("15 first chars read: %.15s\n",(char *)iov->iov->iov_base);
+
     return 0;
 }
 
-static int nvme_volt_print_write(void){
+static int nvme_volt_print_write(NvmeRequest *req, struct ppa_addr addr, QEMUIOVector *iov){
+    LnvmVoltCtrl *volt = (LnvmVoltCtrl *) req->ns->ctrl->volt_ctrl;
     printf("Volt device is writing!\n");
+
+    // VERIFY ADDRESS
+    // VERIFY SIZE <= PAGE_SIZE (FOR NOW ONLY WRITES OF THE PAGE SIZE)
+    // VERIFY SEQUENTIAL PAGE WITHIN THE BLOCK
+    // VERIFY IF THE BLOCK IS FULL
+    // VERIFY PAGE STATE
+    // MODIFY PAGE STATE
+    // MODIFY NEXT PAGE
+
+    LnvmVoltBlock *blk = nvme_volt_get_block(volt, addr);
+    memcpy(&blk->data[addr.g.pg * volt->params.pg_size],iov->iov->iov_base,iov->iov->iov_len);
+    printf("15 first chars written: %.15s\n",(char *)&blk->data[addr.g.pg * volt->params.pg_size]);
+
     return 0;
 }
 
@@ -36,11 +63,18 @@ static void nvme_volt_bh(void *opaque)
 void coroutine_fn nvme_volt_redirect_co(void *opaque){
     LnvmVoltBlockAIOCBCoroutine *acb = opaque;
     BlockDriverState *bs = acb->common.bs;
+    NvmeRequest *req = (NvmeRequest *) ((LnvmVoltBlockAIOCBCoroutine *) acb->common.opaque)->common.opaque;
+
+    struct ppa_addr lnvm_addr;
+    lnvm_addr.ppa = acb->req.sector;
+    printf("LightNVM address: %#018lx\n", lnvm_addr.ppa);
+    printf("LightNVM address: blk:0x%04x, pg:0x%04x, sec:0x%02x, pl:0x%02x, lun:0x%02x, ch:0x%02x\n",
+            lnvm_addr.g.blk, lnvm_addr.g.pg, lnvm_addr.g.sec, lnvm_addr.g.pl, lnvm_addr.g.lun, lnvm_addr.g.ch);
 
     if (!acb->is_write) {
-        acb->req.error = nvme_volt_print_read(); // VOLT READ
+        acb->req.error = nvme_volt_print_read(req, lnvm_addr, acb->req.qiov); // VOLT READ
     } else {
-        acb->req.error = nvme_volt_print_write(); // VOLT WRITE
+        acb->req.error = nvme_volt_print_write(req, lnvm_addr, acb->req.qiov); // VOLT WRITE
     }
 
     acb->bh = aio_bh_new(bdrv_get_aio_context(bs), nvme_volt_bh, acb);
@@ -98,7 +132,7 @@ static void nvme_volt_sub_mem(LnvmVoltCtrl *volt, int64_t bytes)
     volt->status.allocated_memory -= bytes;
 }
 
-static LnvmVoltPage * nvme_volt_init_page(LnvmVoltPage *pg)
+static LnvmVoltPage * nvme_volt_init_page(LnvmVoltPage *pg, uint16_t pg_id)
 {
     pg->state = 0; /* free */
     return ++pg;
@@ -117,6 +151,7 @@ static int nvme_volt_init_blocks(LnvmVoltCtrl *volt)
                
     for (i_blk = 0; i_blk < total_blk; i_blk++) {
         LnvmVoltBlock *blk = &volt->blocks[i_blk];
+        blk->id = i_blk;
         blk->life = LNVM_VOLT_BLK_LIFE;
 
         blk->pages = g_malloc(nvme_volt_add_mem(volt, sizeof(LnvmVoltPage) * volt->params.num_pg));
@@ -130,8 +165,7 @@ static int nvme_volt_init_blocks(LnvmVoltCtrl *volt)
 
         LnvmVoltPage *pg = blk->pages;
         for (i_pg = 0; i_pg < volt->params.num_pg; i_pg++) {
-            pg = nvme_volt_init_page(pg);
-            blk->data[i_pg * volt->params.pg_size] = (i_blk + 1) * i_pg;
+            pg = nvme_volt_init_page(pg, page_count);
             page_count++;
         }
     }

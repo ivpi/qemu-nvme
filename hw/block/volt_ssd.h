@@ -25,16 +25,17 @@ typedef struct LnvmVoltParams {
 } LnvmVoltParams;
 
 typedef struct LnvmVoltStatus {
-    uint8_t     ready; /* 0-busy, 1-ready to use */
-    uint8_t     active; /* 0-disabled, 1-activated */
+    uint8_t     ready; /* 0x00-busy, 0x01-ready to use */
+    uint8_t     active; /* 0x00-disabled, 0x01-activated */
     int64_t     allocated_memory;
 } LnvmVoltStatus;
 
 typedef struct LnvmVoltPage {
-    uint8_t     state; /* 0-free, 1-alive, 2-invalid */
+    uint8_t         state; /* 0x00-free, 0x01-alive, 0x02-invalid */
 } LnvmVoltPage;
 
 typedef struct LnvmVoltBlock {
+    uint16_t        id;
     uint16_t        life; /* available writes before die */
     LnvmVoltPage    *next_pg;
     LnvmVoltPage    *pages;
