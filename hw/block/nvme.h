@@ -293,11 +293,8 @@ typedef struct LnvmGetBBTbl {
   uint64_t rsvd1[2];
   uint64_t prp1;
   uint64_t prp2;
-  uint64_t rsvd2;
-  uint8_t chid;
-  uint8_t lunid;
-  uint16_t rsvd3;
-  uint32_t rsvd4[3]; // DW15, 14, 13
+  uint64_t spba;
+  uint32_t rsvd4[4]; // DW15, 14, 13, 12
 } LnvmGetBBTbl;
 
 typedef struct LnvmSetBBTbl {
@@ -403,7 +400,7 @@ typedef struct LnvmRwCmd {
     uint16_t    cid;
     uint32_t    nsid;
     uint64_t    rsvd2;
-    uint64_t    mptr;
+    uint64_t    metadata;
     uint64_t    prp1;
     uint64_t    prp2;
     uint64_t    spba;
@@ -497,8 +494,13 @@ typedef struct NvmeAerResult {
 } NvmeAerResult;
 
 typedef struct NvmeCqe {
-    uint32_t    result;
-    uint32_t    rsvd;
+    union {
+        struct {
+            uint32_t    result;
+            uint32_t    rsvd;
+        } n;
+        uint64_t    res64;
+    };
     uint16_t    sq_head;
     uint16_t    sq_id;
     uint16_t    cid;
@@ -743,7 +745,8 @@ typedef struct LnvmParams {
     uint8_t     num_pln;
     uint8_t     num_lun;
     /* calculated values */
-    uint32_t    sec_per_pl;
+    uint32_t    sec_per_phys_pl;
+    uint32_t    sec_per_log_pl;
     uint32_t    sec_per_blk;
     uint32_t    sec_per_lun;
     uint32_t    total_secs;
@@ -1021,6 +1024,8 @@ typedef struct LnvmCtrl {
     uint8_t        bb_auto_gen;
     char           *bb_tbl_name;
     FILE           *bb_tbl;
+    uint32_t       err_write;
+    uint32_t       err_write_cnt;
 } LnvmCtrl;
 
 typedef struct NvmeCtrl {
