@@ -135,6 +135,8 @@
 #include <sysemu/sysemu.h>
 #include <sysemu/block-backend.h>
 #include <qemu/main-loop.h>
+#include <time.h>
+#include <sys/time.h>
 
 #include "nvme.h"
 #include "trace.h"
@@ -486,7 +488,11 @@ static void nvme_enqueue_req_completion(NvmeCQueue *cq, NvmeRequest *req)
         QTAILQ_INSERT_TAIL(&cq->req_list, req, entry);
         return;
     }
-
+    
+    clock_t end = clock();
+    long double cpu_time_used = ((long double)(end-req->start)) / CLOCKS_PER_SEC * 1000000;
+    printf("Time spent: %Lf us.\n",cpu_time_used);
+    
     nvme_post_cqe(cq, req);
     notify = coalesce_disabled || !req->sq->sqid || !time_ns ||
         req->status != NVME_SUCCESS || nvme_cqes_pending(cq) >= thresh;
@@ -2273,7 +2279,8 @@ static void nvme_process_sq(void *opaque)
         memset(&req->cqe, 0, sizeof(req->cqe));
         req->cqe.cid = cmd.cid;
         req->aiocb = NULL;
-
+        req->start = clock();
+        
         status = sq->sqid ? nvme_io_cmd(n, &cmd, req) :
             nvme_admin_cmd(n, &cmd, req);
         if (status != NVME_NO_COMPLETE) {

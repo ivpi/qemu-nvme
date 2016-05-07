@@ -4,6 +4,7 @@
 #include "include/hw/block/block.h"
 #include "include/hw/pci/pci.h"
 #include "hw/block/volt_ssd.h"
+#include <time.h>
 
 typedef struct NvmeBar {
     uint64_t    cap;
@@ -916,6 +917,7 @@ typedef struct NvmeRequest {
     QEMUSGList              qsg;
     QEMUIOVector            iov;
     QTAILQ_ENTRY(NvmeRequest)entry;
+    clock_t                 start;
 } NvmeRequest;
 
 typedef struct DMAOff {
